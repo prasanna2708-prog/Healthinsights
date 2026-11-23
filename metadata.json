@@ -1,0 +1,6 @@
+{
+  "name": "Actuaria",
+  "description": "Health Insurance Claims & Premium Cost Visualization Platform for actuarial preprocessing, risk-segment tagging, distribution analytics, and Monte Carlo cost-uncertainty modeling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

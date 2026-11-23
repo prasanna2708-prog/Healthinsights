@@ -1,0 +1,369 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Helpers ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'historymaker620@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function hasRole(roleName) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == roleName;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || hasRole('admin');
+    }
+
+    function isAnalystOrAdmin() {
+      return isAdmin() || hasRole('analyst');
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'department', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'department', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.role in ['admin', 'analyst', 'viewer']
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 60
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateContact(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClaimsDataset(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'sourceFileName', 'ownerId', 'ownerName', 'visibility',
+          'totalClaims', 'cleanedClaims', 'anomaliesDetected', 'totalClaimAmount',
+          'avgClaimAmount', 'lowRiskCount', 'mediumRiskCount', 'highRiskCount',
+          'encryptionAlg', 'keyFingerprint', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'sourceFileName', 'ownerId', 'ownerName', 'visibility',
+          'totalClaims', 'cleanedClaims', 'anomaliesDetected', 'totalClaimAmount',
+          'avgClaimAmount', 'lowRiskCount', 'mediumRiskCount', 'highRiskCount',
+          'encryptionAlg', 'keyFingerprint', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.sourceFileName is string && data.sourceFileName.size() >= 1 && data.sourceFileName.size() <= 120
+        && isValidId(data.ownerId)
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 80
+        && data.visibility in ['private', 'shared']
+        && data.totalClaims is int && data.totalClaims >= 0 && data.totalClaims <= 1000000
+        && data.cleanedClaims is int && data.cleanedClaims >= 0 && data.cleanedClaims <= 1000000
+        && data.anomaliesDetected is int && data.anomaliesDetected >= 0 && data.anomaliesDetected <= 1000000
+        && data.totalClaimAmount is number && data.totalClaimAmount >= 0
+        && data.avgClaimAmount is number && data.avgClaimAmount >= 0
+        && data.lowRiskCount is int && data.lowRiskCount >= 0
+        && data.mediumRiskCount is int && data.mediumRiskCount >= 0
+        && data.highRiskCount is int && data.highRiskCount >= 0
+        && data.encryptionAlg == 'AES-256-GCM'
+        && data.keyFingerprint is string && data.keyFingerprint.size() >= 8 && data.keyFingerprint.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProcessedClaim(data) {
+      return data.keys().hasAll([
+          'claimId', 'datasetId', 'ownerId', 'visibility', 'encryptedPatientId',
+          'maskedPatientId', 'serviceDate', 'amount', 'claimType', 'icd10Code',
+          'icd10Category', 'patientAge', 'ageGroup', 'region', 'policyType',
+          'comorbidities', 'isAnomaly', 'anomalyReason', 'riskScore', 'riskSegment', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'claimId', 'datasetId', 'ownerId', 'visibility', 'encryptedPatientId',
+          'maskedPatientId', 'serviceDate', 'amount', 'claimType', 'icd10Code',
+          'icd10Category', 'patientAge', 'ageGroup', 'region', 'policyType',
+          'comorbidities', 'isAnomaly', 'anomalyReason', 'riskScore', 'riskSegment', 'createdAt'
+        ])
+        && isValidId(data.claimId)
+        && isValidId(data.datasetId)
+        && isValidId(data.ownerId)
+        && data.visibility in ['private', 'shared']
+        && data.encryptedPatientId is string && data.encryptedPatientId.size() >= 12 && data.encryptedPatientId.size() <= 256
+        && data.maskedPatientId is string && data.maskedPatientId.size() >= 4 && data.maskedPatientId.size() <= 32
+        && data.serviceDate is string && data.serviceDate.size() == 10 && data.serviceDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.amount is number && data.amount >= 0 && data.amount <= 100000000
+        && data.claimType in ['Inpatient', 'Outpatient', 'Pharmacy', 'Diagnostics']
+        && data.icd10Code is string && data.icd10Code.size() >= 2 && data.icd10Code.size() <= 16
+        && data.icd10Category is string && data.icd10Category.size() >= 1 && data.icd10Category.size() <= 64
+        && data.patientAge is int && data.patientAge >= 0 && data.patientAge <= 125
+        && data.ageGroup in ['0-17', '18-34', '35-49', '50-64', '65+']
+        && data.region in ['Northeast', 'Midwest', 'South', 'West']
+        && data.policyType in ['PPO', 'HMO', 'EPO', 'HDHP', 'Medicare Advantage']
+        && data.comorbidities is int && data.comorbidities >= 0 && data.comorbidities <= 30
+        && data.isAnomaly is bool
+        && data.anomalyReason is string && data.anomalyReason.size() <= 120
+        && data.riskScore is number && data.riskScore >= 0 && data.riskScore <= 100
+        && data.riskSegment in ['Low Risk', 'Medium Risk', 'High Risk']
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRiskRulePreset(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'ownerId', 'visibility', 'highAmountThreshold',
+          'mediumAmountThreshold', 'highComorbidityThreshold', 'mediumComorbidityThreshold',
+          'inpatientWeight', 'ageThreshold', 'ageWeight', 'anomalyZScoreThreshold',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'ownerId', 'visibility', 'highAmountThreshold',
+          'mediumAmountThreshold', 'highComorbidityThreshold', 'mediumComorbidityThreshold',
+          'inpatientWeight', 'ageThreshold', 'ageWeight', 'anomalyZScoreThreshold',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && isValidId(data.ownerId)
+        && data.visibility in ['private', 'shared']
+        && data.highAmountThreshold is number && data.highAmountThreshold >= 0
+        && data.mediumAmountThreshold is number && data.mediumAmountThreshold >= 0
+        && data.highComorbidityThreshold is int && data.highComorbidityThreshold >= 0 && data.highComorbidityThreshold <= 30
+        && data.mediumComorbidityThreshold is int && data.mediumComorbidityThreshold >= 0 && data.mediumComorbidityThreshold <= 30
+        && data.inpatientWeight is number && data.inpatientWeight >= 0 && data.inpatientWeight <= 100
+        && data.ageThreshold is int && data.ageThreshold >= 0 && data.ageThreshold <= 120
+        && data.ageWeight is number && data.ageWeight >= 0 && data.ageWeight <= 100
+        && data.anomalyZScoreThreshold is number && data.anomalyZScoreThreshold >= 1 && data.anomalyZScoreThreshold <= 10
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPremiumScenario(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'datasetId', 'ownerId', 'visibility', 'frequencyDeltaPct',
+          'severityDeltaPct', 'highRiskReductionPct', 'adminLoadPct', 'targetLossRatioPct',
+          'baselinePurePremium', 'projectedPurePremium', 'projectedGrossPremium',
+          'p95AggregateLoss', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'datasetId', 'ownerId', 'visibility', 'frequencyDeltaPct',
+          'severityDeltaPct', 'highRiskReductionPct', 'adminLoadPct', 'targetLossRatioPct',
+          'baselinePurePremium', 'projectedPurePremium', 'projectedGrossPremium',
+          'p95AggregateLoss', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && isValidId(data.datasetId)
+        && isValidId(data.ownerId)
+        && data.visibility in ['private', 'shared']
+        && data.frequencyDeltaPct is number && data.frequencyDeltaPct >= -90 && data.frequencyDeltaPct <= 300
+        && data.severityDeltaPct is number && data.severityDeltaPct >= -90 && data.severityDeltaPct <= 300
+        && data.highRiskReductionPct is number && data.highRiskReductionPct >= 0 && data.highRiskReductionPct <= 100
+        && data.adminLoadPct is number && data.adminLoadPct >= 0 && data.adminLoadPct <= 50
+        && data.targetLossRatioPct is number && data.targetLossRatioPct >= 40 && data.targetLossRatioPct <= 100
+        && data.baselinePurePremium is number && data.baselinePurePremium >= 0
+        && data.projectedPurePremium is number && data.projectedPurePremium >= 0
+        && data.projectedGrossPremium is number && data.projectedGrossPremium >= 0
+        && data.p95AggregateLoss is number && data.p95AggregateLoss >= 0
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['id', 'actorUid', 'actorRole', 'action', 'resourcePath', 'details', 'createdAt'])
+        && data.keys().hasOnly(['id', 'actorUid', 'actorRole', 'action', 'resourcePath', 'details', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.actorUid)
+        && data.actorRole in ['admin', 'analyst', 'viewer']
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 64
+        && data.resourcePath is string && data.resourcePath.size() >= 1 && data.resourcePath.size() <= 160
+        && data.details is string && data.details.size() >= 1 && data.details.size() <= 240
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(userId)
+        && isVerifiedUser()
+        && isOwner(userId)
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (incoming().role == 'viewer' || isBootstrappedAdmin());
+      allow update: if isValidId(userId)
+        && isVerifiedUser()
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'department', 'displayName', 'updatedAt'])) ||
+          (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'department', 'updatedAt']))
+        );
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && docId == 'contact' && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isValidId(userId) && isValidId(docId) && docId == 'contact'
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidUserPrivateContact(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(docId) && docId == 'contact'
+          && isVerifiedUser()
+          && isOwner(userId)
+          && isValidUserPrivateContact(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    match /datasets/{datasetId} {
+      allow get: if isValidId(datasetId) && isSignedIn() && (existing().ownerId == request.auth.uid || existing().visibility == 'shared' || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || resource.data.visibility == 'shared' || isBootstrappedAdmin());
+      allow create: if isValidId(datasetId)
+        && isVerifiedUser()
+        && isValidClaimsDataset(incoming())
+        && incoming().id == datasetId
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isAnalystOrAdmin();
+      allow update: if isValidId(datasetId)
+        && isVerifiedUser()
+        && isValidClaimsDataset(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'visibility', 'anomaliesDetected', 'lowRiskCount', 'mediumRiskCount', 'highRiskCount', 'updatedAt'])) ||
+          (isAnalystOrAdmin() && existing().ownerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'visibility', 'anomaliesDetected', 'lowRiskCount', 'mediumRiskCount', 'highRiskCount', 'updatedAt']))
+        );
+      allow delete: if isValidId(datasetId) && isVerifiedUser() && (isAdmin() || (isAnalystOrAdmin() && existing().ownerId == request.auth.uid));
+
+      match /claims/{claimId} {
+        allow get: if isValidId(datasetId) && isValidId(claimId) && isSignedIn() && (existing().ownerId == request.auth.uid || existing().visibility == 'shared' || isAdmin());
+        allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || resource.data.visibility == 'shared' || isBootstrappedAdmin());
+        allow create: if isValidId(datasetId) && isValidId(claimId)
+          && isVerifiedUser()
+          && isValidProcessedClaim(incoming())
+          && incoming().claimId == claimId
+          && incoming().datasetId == datasetId
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isAnalystOrAdmin()
+          && exists(/databases/$(database)/documents/datasets/$(datasetId))
+          && get(/databases/$(database)/documents/datasets/$(datasetId)).data.ownerId == request.auth.uid;
+        allow update: if isValidId(datasetId) && isValidId(claimId)
+          && isVerifiedUser()
+          && isValidProcessedClaim(incoming())
+          && incoming().claimId == existing().claimId
+          && incoming().datasetId == existing().datasetId
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && (
+            (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['riskScore', 'riskSegment', 'isAnomaly', 'anomalyReason', 'visibility'])) ||
+            (isAnalystOrAdmin() && existing().ownerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['riskScore', 'riskSegment', 'isAnomaly', 'anomalyReason', 'visibility']))
+          );
+        allow delete: if isValidId(datasetId) && isValidId(claimId) && isVerifiedUser() && (isAdmin() || (isAnalystOrAdmin() && existing().ownerId == request.auth.uid));
+      }
+    }
+
+    match /riskRules/{ruleId} {
+      allow get: if isValidId(ruleId) && isSignedIn() && (existing().ownerId == request.auth.uid || existing().visibility == 'shared' || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || resource.data.visibility == 'shared' || isBootstrappedAdmin());
+      allow create: if isValidId(ruleId)
+        && isVerifiedUser()
+        && isValidRiskRulePreset(incoming())
+        && incoming().id == ruleId
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && isAnalystOrAdmin();
+      allow update: if isValidId(ruleId)
+        && isVerifiedUser()
+        && isValidRiskRulePreset(incoming())
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'visibility', 'highAmountThreshold', 'mediumAmountThreshold',
+            'highComorbidityThreshold', 'mediumComorbidityThreshold',
+            'inpatientWeight', 'ageThreshold', 'ageWeight', 'anomalyZScoreThreshold', 'updatedAt'
+          ])) ||
+          (isAnalystOrAdmin() && existing().ownerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'visibility', 'highAmountThreshold', 'mediumAmountThreshold',
+            'highComorbidityThreshold', 'mediumComorbidityThreshold',
+            'inpatientWeight', 'ageThreshold', 'ageWeight', 'anomalyZScoreThreshold', 'updatedAt'
+          ]))
+        );
+      allow delete: if isValidId(ruleId) && isVerifiedUser() && (isAdmin() || (isAnalystOrAdmin() && existing().ownerId == request.auth.uid));
+    }
+
+    match /scenarios/{scenarioId} {
+      allow get: if isValidId(scenarioId) && isSignedIn() && (existing().ownerId == request.auth.uid || existing().visibility == 'shared' || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || resource.data.visibility == 'shared' || isBootstrappedAdmin());
+      allow create: if isValidId(scenarioId)
+        && isVerifiedUser()
+        && isValidPremiumScenario(incoming())
+        && incoming().id == scenarioId
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && isAnalystOrAdmin();
+      allow update: if false;
+      allow delete: if isValidId(scenarioId) && isVerifiedUser() && (isAdmin() || (isAnalystOrAdmin() && existing().ownerId == request.auth.uid));
+    }
+
+    match /auditLogs/{logId} {
+      allow get: if isValidId(logId) && isSignedIn() && (existing().actorUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.actorUid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isValidId(logId)
+        && isVerifiedUser()
+        && isValidAuditLog(incoming())
+        && incoming().id == logId
+        && incoming().actorUid == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}
